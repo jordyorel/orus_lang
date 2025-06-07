@@ -1,0 +1,8 @@
+// Test calling a function before it is defined
+fn main() {
+    print(foo(3))
+}
+
+fn foo(x: i32) -> i32 {
+    return x * 2
+}

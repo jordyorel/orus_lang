@@ -183,6 +183,7 @@ Functions are defined with the `fn` keyword and follow these rules:
 - If a return type is declared, all code paths must return a value of that type
 - Functions without a return type declaration implicitly return `nil`
 - Parameters are passed by value
+- Functions may be called before their definitions appear
 
 Examples:
 ```orus

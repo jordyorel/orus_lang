@@ -34,6 +34,7 @@ static void addContinueJump(Compiler* compiler, int jumpPos);
 static void patchContinueJumps(Compiler* compiler);
 static void emitForLoop(Compiler* compiler, ASTNode* node);
 void disassembleChunk(Chunk* chunk, const char* name);
+static void predeclareFunction(Compiler* compiler, ASTNode* node);
 
 static void deduceGenerics(Type* expected, Type* actual,
                            ObjString** names, Type** subs, int count) {
@@ -720,53 +721,11 @@ static void typeCheckNode(Compiler* compiler, ASTNode* node) {
         }
 
         case AST_FUNCTION: {
-            // Define the function in the symbol table
-            char tempName[node->data.function.name.length + 1];
-            memcpy(tempName, node->data.function.name.start, node->data.function.name.length);
-            tempName[node->data.function.name.length] = '\0';
-            Symbol* existing = findSymbol(&compiler->symbols, tempName);
-            uint8_t index;
-            if (existing && existing->scope == compiler->scopeDepth && node->data.function.implType) {
-                const char* structName = node->data.function.implType->info.structure.name->chars;
-                size_t structLen = strlen(structName);
-                size_t funcLen = node->data.function.name.length;
-                char* temp = (char*)malloc(structLen + 1 + funcLen + 1);
-                memcpy(temp, structName, structLen);
-                temp[structLen] = '_';
-                memcpy(temp + structLen + 1, node->data.function.name.start, funcLen);
-                temp[structLen + 1 + funcLen] = '\0';
-
-                ObjString* fullStr = allocateString(temp, structLen + 1 + funcLen);
-                free(temp);
-
-                Token newTok = node->data.function.name;
-                newTok.start = fullStr->chars;
-                newTok.length = structLen + 1 + funcLen;
-                node->data.function.name = newTok;
-                node->data.function.mangledName = fullStr;
-                index = defineVariable(compiler, newTok, node->data.function.returnType);
-            } else {
-                index = defineVariable(compiler, node->data.function.name, node->data.function.returnType);
+            uint8_t index = node->data.function.index;
+            if (index == UINT8_MAX) {
+                predeclareFunction(compiler, node);
+                index = node->data.function.index;
             }
-            node->data.function.index = index;
-            vm.functionDecls[index] = node;
-
-            int pcount = 0;
-            ASTNode* p = node->data.function.parameters;
-            while (p) { pcount++; p = p->next; }
-            Type** paramTypes = NULL;
-            if (pcount > 0) {
-                paramTypes = (Type**)malloc(sizeof(Type*) * pcount);
-                p = node->data.function.parameters;
-                for (int i = 0; i < pcount; i++) {
-                    paramTypes[i] = p->data.let.type;
-                    p = p->next;
-                }
-            }
-            Type* funcType = createFunctionType(node->data.function.returnType,
-                                               paramTypes, pcount);
-            variableTypes[index] = funcType;
-            vm.globalTypes[index] = funcType;
 
             beginScope(compiler);
             // Type check parameters
@@ -2399,6 +2358,69 @@ static void patchBreakJumps(Compiler* compiler) {
     compiler->breakJumpCount = 0;
 }
 
+// Perform a prepass over the AST to record all function declarations so
+// they can be referenced before their definitions.
+static void predeclareFunction(Compiler* compiler, ASTNode* node) {
+    char tempName[node->data.function.name.length + 1];
+    memcpy(tempName, node->data.function.name.start, node->data.function.name.length);
+    tempName[node->data.function.name.length] = '\0';
+    Symbol* existing = findSymbol(&compiler->symbols, tempName);
+    uint8_t index;
+    if (existing && existing->scope == compiler->scopeDepth && node->data.function.implType) {
+        const char* structName = node->data.function.implType->info.structure.name->chars;
+        size_t structLen = strlen(structName);
+        size_t funcLen = node->data.function.name.length;
+        char* temp = (char*)malloc(structLen + 1 + funcLen + 1);
+        memcpy(temp, structName, structLen);
+        temp[structLen] = '_';
+        memcpy(temp + structLen + 1, node->data.function.name.start, funcLen);
+        temp[structLen + 1 + funcLen] = '\0';
+
+        ObjString* fullStr = allocateString(temp, structLen + 1 + funcLen);
+        free(temp);
+
+        Token newTok = node->data.function.name;
+        newTok.start = fullStr->chars;
+        newTok.length = structLen + 1 + funcLen;
+        node->data.function.name = newTok;
+        node->data.function.mangledName = fullStr;
+        index = defineVariable(compiler, newTok, node->data.function.returnType);
+    } else {
+        index = defineVariable(compiler, node->data.function.name, node->data.function.returnType);
+    }
+    node->data.function.index = index;
+    vm.functionDecls[index] = node;
+
+    int pcount = 0;
+    ASTNode* p = node->data.function.parameters;
+    while (p) { pcount++; p = p->next; }
+    Type** paramTypes = NULL;
+    if (pcount > 0) {
+        paramTypes = (Type**)malloc(sizeof(Type*) * pcount);
+        p = node->data.function.parameters;
+        for (int i = 0; i < pcount; i++) {
+            paramTypes[i] = p->data.let.type;
+            p = p->next;
+        }
+    }
+    Type* funcType = createFunctionType(node->data.function.returnType,
+                                       paramTypes, pcount);
+    variableTypes[index] = funcType;
+    vm.globalTypes[index] = funcType;
+}
+
+static void recordFunctionDeclarations(ASTNode* ast, Compiler* compiler) {
+    ASTNode* current = ast;
+    while (current) {
+        if (current->type == AST_FUNCTION) {
+            predeclareFunction(compiler, current);
+        } else if (current->type == AST_BLOCK && !current->data.block.scoped) {
+            recordFunctionDeclarations(current->data.block.statements, compiler);
+        }
+        current = current->next;
+    }
+}
+
 void initCompiler(Compiler* compiler, Chunk* chunk,
                   const char* filePath, const char* sourceCode) {
     compiler->loopStart = -1;
@@ -2469,6 +2491,7 @@ static void freeCompiler(Compiler* compiler) {
 
 bool compile(ASTNode* ast, Compiler* compiler, bool requireMain) {
     initTypeSystem();
+    recordFunctionDeclarations(ast, compiler);
     ASTNode* current = ast;
     // Removed unused index variable
     while (current) {

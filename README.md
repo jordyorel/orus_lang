@@ -12,6 +12,7 @@ include:
 - Control flow with `if`/`elif`/`else`, `for` ranges and `while` loops as well
   as `break` and `continue`.
 - Functions with parameters, recursion and optional return types.
+- Function calls can reference functions defined later in the file.
 - Arithmetic, comparison and logical (`and`/`or`) operators.
 - String concatenation with `+` and a `print` function supporting simple
   interpolation using `{}` placeholders.

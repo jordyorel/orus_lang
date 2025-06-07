@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #include "../../include/ast.h"
 #include "../../include/memory.h"
@@ -170,7 +171,7 @@ ASTNode* createFunctionNode(Token name, ASTNode* parameters, Type* returnType,
     node->data.function.parameters = parameters;
     node->data.function.returnType = returnType;
     node->data.function.body = body;
-    node->data.function.index = 0; // Will be resolved during compilation
+    node->data.function.index = UINT8_MAX; // Will be resolved during compilation
     node->data.function.isMethod = false;
     node->data.function.implType = NULL;
     node->data.function.mangledName = NULL;
