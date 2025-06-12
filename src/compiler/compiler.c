@@ -2239,21 +2239,10 @@ static void generateCode(Compiler* compiler, ASTNode* node) {
                     if (chars[i] == '{' && chars[i + 1] == '}') { prefixIndex = i; break; }
                 }
 
-                bool placeholderAtEnd = prefixIndex >= 0 && prefixIndex + 2 == length;
-                bool singleVoidArg = false;
-                if (placeholderAtEnd && node->data.print.argCount == 1 &&
-                    node->data.print.arguments && node->data.print.arguments->valueType) {
-                    TypeKind k = node->data.print.arguments->valueType->kind;
-                    singleVoidArg = (k == TYPE_VOID || k == TYPE_NIL);
-                }
-
                 if (prefixIndex > 0) {
                     ObjString* prefix = allocateString(chars, prefixIndex);
                     emitConstant(compiler, STRING_VAL(prefix));
-                    if (singleVoidArg)
-                        writeOp(compiler, OP_PRINT);
-                    else
-                        writeOp(compiler, OP_PRINT_NO_NL);
+                    writeOp(compiler, OP_PRINT_NO_NL);
                 }
 
                 ObjString* rest = allocateString(chars + (prefixIndex >= 0 ? prefixIndex : 0),
@@ -2272,14 +2261,10 @@ static void generateCode(Compiler* compiler, ASTNode* node) {
 
                 emitConstant(compiler, I32_VAL(node->data.print.argCount));
 
-                if (singleVoidArg) {
+                if (node->data.print.newline)
+                    writeOp(compiler, OP_FORMAT_PRINT);
+                else
                     writeOp(compiler, OP_FORMAT_PRINT_NO_NL);
-                } else {
-                    if (node->data.print.newline)
-                        writeOp(compiler, OP_FORMAT_PRINT);
-                    else
-                        writeOp(compiler, OP_FORMAT_PRINT_NO_NL);
-                }
             } else if (node->data.print.arguments != NULL) {
                 // Generic formatted print with interpolation
 
